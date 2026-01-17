@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Terminal, Sparkles, Plus } from "lucide-react";
+import { Sparkles, Plus } from "lucide-react";
+import Image from "next/image";
 import { VideoUploader } from "@/components/video-uploader";
 import { ControlPanel } from "@/components/control-panel";
 import { ASCIIPreview } from "@/components/ascii-preview";
@@ -57,7 +58,13 @@ export default function Home() {
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/10 rounded-lg border border-primary/20">
-              <Terminal className="w-5 h-5 text-primary" />
+              <Image 
+                src="/icon.png" 
+                alt="ASCII Video Converter" 
+                width={20} 
+                height={20}
+                className="w-5 h-5"
+              />
             </div>
             <div>
               <h1 className="font-semibold text-lg tracking-tight">ASCII Video</h1>
