@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Plus } from "lucide-react";
 import Image from "next/image";
@@ -9,6 +9,7 @@ import { ControlPanel } from "@/components/control-panel";
 import { ASCIIPreview } from "@/components/ascii-preview";
 import { ASCIISettings, DEFAULT_SETTINGS } from "@/lib/ascii-converter";
 import { Button } from "@/components/ui/button";
+import { LoadingScreen } from "@/components/loading-screen";
 
 interface GifFrame {
   patch: Uint8ClampedArray;
@@ -24,19 +25,80 @@ export default function Home() {
   const [settings, setSettings] = useState<ASCIISettings>(DEFAULT_SETTINGS);
   const [originalWidth, setOriginalWidth] = useState(0);
   const [originalHeight, setOriginalHeight] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const loadingStartTimeRef = useRef<number | null>(null);
+  const pendingVideoRef = useRef<{
+    video: HTMLVideoElement | HTMLImageElement;
+    file: File;
+    frames?: GifFrame[];
+  } | null>(null);
 
-  const handleVideoLoad = (loadedVideo: HTMLVideoElement | HTMLImageElement, file: File, frames?: GifFrame[]) => {
-    setVideo(loadedVideo);
-    setFileName(file.name);
-    setGifFrames(frames);
-    if (loadedVideo instanceof HTMLVideoElement) {
-      setOriginalWidth(loadedVideo.videoWidth);
-      setOriginalHeight(loadedVideo.videoHeight);
+  const handleLoadingChange = useCallback((loading: boolean) => {
+    if (loading) {
+      // Start loading - record start time immediately
+      const startTime = Date.now();
+      loadingStartTimeRef.current = startTime;
+      setIsLoading(true);
     } else {
-      setOriginalWidth(loadedVideo.naturalWidth);
-      setOriginalHeight(loadedVideo.naturalHeight);
+      // Error case - reset immediately
+      setIsLoading(false);
+      loadingStartTimeRef.current = null;
+      pendingVideoRef.current = null;
     }
-  };
+  }, []);
+
+  const handleVideoLoad = useCallback((loadedVideo: HTMLVideoElement | HTMLImageElement, file: File, frames?: GifFrame[]) => {
+    // Store the loaded video
+    pendingVideoRef.current = { video: loadedVideo, file, frames };
+    
+    // Always wait 2 seconds from when loading started
+    const startTime = loadingStartTimeRef.current;
+    if (!startTime) {
+      // Fallback if startTime wasn't set (shouldn't happen, but just in case)
+      loadingStartTimeRef.current = Date.now();
+      setTimeout(() => {
+        setIsLoading(false);
+        loadingStartTimeRef.current = null;
+        setVideo(loadedVideo);
+        setFileName(file.name);
+        setGifFrames(frames);
+        if (loadedVideo instanceof HTMLVideoElement) {
+          setOriginalWidth(loadedVideo.videoWidth);
+          setOriginalHeight(loadedVideo.videoHeight);
+        } else {
+          setOriginalWidth(loadedVideo.naturalWidth);
+          setOriginalHeight(loadedVideo.naturalHeight);
+        }
+        pendingVideoRef.current = null;
+      }, 2000);
+      return;
+    }
+    
+    const elapsed = Date.now() - startTime;
+    const remaining = Math.max(0, 2000 - elapsed);
+    
+    setTimeout(() => {
+      const pending = pendingVideoRef.current;
+      if (pending) {
+        setIsLoading(false);
+        loadingStartTimeRef.current = null;
+        
+        // Show the editing components
+        setVideo(pending.video);
+        setFileName(pending.file.name);
+        setGifFrames(pending.frames);
+        if (pending.video instanceof HTMLVideoElement) {
+          setOriginalWidth(pending.video.videoWidth);
+          setOriginalHeight(pending.video.videoHeight);
+        } else {
+          setOriginalWidth(pending.video.naturalWidth);
+          setOriginalHeight(pending.video.naturalHeight);
+        }
+        
+        pendingVideoRef.current = null;
+      }
+    }, remaining);
+  }, []);
 
   const handleReset = () => {
     if (video) {
@@ -52,20 +114,40 @@ export default function Home() {
     setOriginalHeight(0);
   };
 
+  // Preload the loading GIF to ensure it's ready immediately
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const img = document.createElement("img");
+      img.src = "/loading-ascii.gif";
+    }
+  }, []);
+
+  // Add/remove class on body when video is loaded
+  useEffect(() => {
+    if (video) {
+      document.body.classList.add("video-editing");
+    } else {
+      document.body.classList.remove("video-editing");
+    }
+    return () => {
+      document.body.classList.remove("video-editing");
+    };
+  }, [video]);
+
   return (
-    <div className="min-h-screen bg-background grid-pattern">
+    <>
+      <LoadingScreen isLoading={isLoading} />
+      <div className="min-h-screen">
       <header className="border-b border-border/50 bg-background/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/10 rounded-lg border border-primary/20">
-              <Image 
-                src="/icon.png" 
-                alt="ASCII Video Converter" 
-                width={20} 
-                height={20}
-                className="w-5 h-5"
-              />
-            </div>
+            <Image 
+              src="/icon-vid.png" 
+              alt="ASCII Video Converter" 
+              width={48} 
+              height={48}
+              className="h-full w-auto rounded-xl"
+            />
             <div>
               <h1 className="font-semibold text-lg tracking-tight">ASCII Video</h1>
               <p className="text-xs text-muted-foreground hidden sm:block">
@@ -84,7 +166,7 @@ export default function Home() {
 
       <main className="container mx-auto px-4 py-8">
         <AnimatePresence mode="wait">
-          {!video ? (
+          {!video && !isLoading ? (
             <motion.div
               key="uploader"
               initial={{ opacity: 0 }}
@@ -120,7 +202,7 @@ export default function Home() {
                   Create stunning ASCII animations for your creative web projects. Export in GIF, MP4, or WebM.
                 </motion.p>
               </div>
-              <VideoUploader onVideoLoad={handleVideoLoad} />
+              <VideoUploader onVideoLoad={handleVideoLoad} onLoadingChange={handleLoadingChange} />
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -139,12 +221,13 @@ export default function Home() {
                 )}
               </motion.div>
             </motion.div>
-          ) : (
+          ) : !isLoading && video ? (
             <motion.div
               key="editor"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
               className="space-y-4"
             >
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -170,7 +253,7 @@ export default function Home() {
                 </div>
               </div>
             </motion.div>
-          )}
+          ) : null}
         </AnimatePresence>
       </main>
 
@@ -182,5 +265,6 @@ export default function Home() {
         </div>
       </footer>
     </div>
+    </>
   );
 }

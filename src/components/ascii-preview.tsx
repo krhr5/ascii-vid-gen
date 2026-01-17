@@ -140,18 +140,29 @@ export function ASCIIPreview({
   }, [video, settings, originalWidth, originalHeight, isAnimatedGif]);
 
   const animate = useCallback((timestamp: number) => {
+    let shouldRender = false;
+    
     if (isAnimatedGif && gifFrames) {
       const frame = gifFrames[gifFrameIndexRef.current];
-      const delay = frame?.delay || 100;
+      // gifuct-js returns delay in milliseconds, but enforce minimum of 20ms for smooth playback
+      const delay = Math.max(20, frame?.delay || 100);
       
       if (timestamp - lastGifFrameTimeRef.current >= delay) {
         gifFrameIndexRef.current = (gifFrameIndexRef.current + 1) % gifFrames.length;
         renderGifFrame(gifFrameIndexRef.current);
         lastGifFrameTimeRef.current = timestamp;
+        shouldRender = true;
       }
+    } else {
+      // For video, render every frame
+      shouldRender = true;
     }
     
-    renderFrame();
+    // Only render when frame actually changes (for GIFs) or always (for video)
+    if (shouldRender) {
+      renderFrame();
+    }
+    
     animationRef.current = requestAnimationFrame(animate);
   }, [renderFrame, isAnimatedGif, gifFrames, renderGifFrame]);
 
@@ -168,17 +179,20 @@ export function ASCIIPreview({
   }, [isAnimatedGif, gifFrames, originalWidth, originalHeight, renderGifFrame, renderFrame]);
 
   useEffect(() => {
+    // Cancel any existing animation frame first
+    cancelAnimationFrame(animationRef.current);
+    
     if (isPlaying) {
       if (isVideo) video.play();
       lastGifFrameTimeRef.current = performance.now();
       animationRef.current = requestAnimationFrame(animate);
     } else {
       if (isVideo) video.pause();
-      cancelAnimationFrame(animationRef.current);
     }
 
     return () => {
       cancelAnimationFrame(animationRef.current);
+      if (isVideo) video.pause();
     };
   }, [isPlaying, animate, video, isVideo]);
 
@@ -250,7 +264,8 @@ export function ASCIIPreview({
         const frameCtx = frameCanvas.getContext("2d");
         if (frameCtx) {
           frameCtx.drawImage(exportCanvas, 0, 0);
-          const delay = gifFrames[i].delay || 100;
+          // gifuct-js returns delay in milliseconds, enforce minimum of 20ms
+          const delay = Math.max(20, gifFrames[i].delay || 100);
           gif.addFrame(frameCanvas, { delay, copy: true });
         }
 
@@ -458,40 +473,62 @@ export function ASCIIPreview({
 
         <div
           ref={containerRef}
-          className="relative bg-card border border-border rounded-xl overflow-auto w-full flex items-center justify-center"
+          className="relative bg-card border border-border rounded-xl w-full overflow-hidden"
           style={{ 
             maxHeight: MAX_PREVIEW_HEIGHT + 40,
             minHeight: Math.min(previewHeight, MAX_PREVIEW_HEIGHT) + 40
           }}
         >
           <div 
+            className="overflow-auto h-full scrollbar-canvas"
             style={{ 
-              width: previewWidth, 
-              height: previewHeight,
-              margin: 'auto'
+              maxHeight: MAX_PREVIEW_HEIGHT + 40,
+              minHeight: Math.min(previewHeight, MAX_PREVIEW_HEIGHT) + 40
             }}
           >
-            <canvas
-              ref={sourceCanvasRef}
-              width={originalWidth}
-              height={originalHeight}
-              className="hidden"
-            />
-            <canvas
-              ref={gifCanvasRef}
-              width={originalWidth}
-              height={originalHeight}
-              className="hidden"
-            />
-            <canvas
-              ref={outputCanvasRef}
-              width={originalWidth}
-              height={originalHeight}
-              style={{ width: previewWidth, height: previewHeight, imageRendering: "pixelated" }}
-            />
+            <div 
+              style={{ 
+                width: previewWidth, 
+                height: previewHeight,
+                margin: '20px auto',
+                display: 'block'
+              }}
+            >
+              <canvas
+                ref={sourceCanvasRef}
+                width={originalWidth}
+                height={originalHeight}
+                className="hidden"
+              />
+              <canvas
+                ref={gifCanvasRef}
+                width={originalWidth}
+                height={originalHeight}
+                className="hidden"
+              />
+              <canvas
+                ref={outputCanvasRef}
+                width={originalWidth}
+                height={originalHeight}
+                style={{ width: previewWidth, height: previewHeight, imageRendering: "pixelated" }}
+              />
+            </div>
           </div>
+          {!isPlaying && !isExporting && (
+            <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
+              <button
+                onClick={handlePlayPause}
+                className="pointer-events-auto cursor-pointer"
+                aria-label="Play"
+              >
+                <div className="w-20 h-20 flex items-center justify-center bg-card/50 backdrop-blur-sm border border-border rounded-lg shadow-lg transition-transform hover:scale-105">
+                  <Play className="w-10 h-10 text-foreground ml-1" />
+                </div>
+              </button>
+            </div>
+          )}
           {isExporting && (
-            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
+            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 pointer-events-auto z-10">
               <Loader2 className="w-8 h-8 text-primary animate-spin" />
               <div className="text-sm text-muted-foreground">
                 Exporting... {exportProgress}%

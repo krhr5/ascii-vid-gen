@@ -49,7 +49,7 @@ export function ControlPanel({ settings, onSettingsChange }: ControlPanelProps) 
   };
 
   return (
-    <div className="w-full h-full bg-card/50 backdrop-blur-sm border border-border rounded-xl p-4 space-y-4 scrollbar-thin overflow-y-auto">
+    <div className="w-full h-full bg-card/50 border border-border rounded-xl p-4 space-y-4 scrollbar-thin overflow-y-auto">
       <Tabs defaultValue="characters" className="w-full">
         <TabsList className="w-full bg-secondary grid grid-cols-4">
           <TabsTrigger value="characters">Chars</TabsTrigger>
